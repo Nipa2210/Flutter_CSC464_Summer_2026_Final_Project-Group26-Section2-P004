@@ -3,10 +3,10 @@ import 'firebase_options.dart';
 import 'package:flutter/material.dart';
 
 Future<void> main() async {
-  WidgetFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializedApp(
-    defaultOptions: DefaultFirebaseOptions.currentPlatform,
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
   );
   runApp(const MyApp());
 }
