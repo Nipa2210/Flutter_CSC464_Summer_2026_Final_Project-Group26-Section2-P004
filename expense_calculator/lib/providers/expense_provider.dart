@@ -27,7 +27,19 @@ class ExpenseProvider extends ChangeNotifier {
       .collection('expenses')
       .add(expense.toFirestore());
 }
+Future<void> updateExpense(Expense expense) async {
+  await _firestore
+      .collection('expenses')
+      .doc(expense.id)
+      .update(expense.toFirestore());
+}
 
+Future<void> deleteExpense(String expenseId) async {
+  await _firestore
+      .collection('expenses')
+      .doc(expenseId)
+      .delete();
+}
 
   // Calculate total expenses for a specific month and year
   double totalForMonth(String month, int year) {
