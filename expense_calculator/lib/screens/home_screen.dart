@@ -1098,9 +1098,39 @@ class _HomeScreenState extends State<HomeScreen> {
                                   color: Colors.redAccent,
                                 ),
                                 onPressed: () async {
-                                  await context
-                                      .read<ExpenseProvider>()
-                                      .deleteExpense(expense.id);
+                                    final shouldDelete = await showDialog<bool>(
+                                      context: context,
+                                      builder: (context) {
+                                        return AlertDialog(
+                                          title: const Text('Delete Expense?'),
+                                          content: const Text(
+                                            'Are you sure you want to delete this expense?',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () {
+                                                  Navigator.of(context).pop(false);
+                                                },
+                                                child: const Text('Cancel'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () {
+                                                  Navigator.of(context).pop(true);
+                                                  },
+                                                  child: const Text(
+                                                    'Delete',
+                                                    style: TextStyle(color: Colors.red),
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      );
+                                      if (shouldDelete == true) {
+                                        await context
+                                          .read<ExpenseProvider>()
+                                          .deleteExpense(expense.id);
+                                        }
                                 },
                               ),
                             ],
