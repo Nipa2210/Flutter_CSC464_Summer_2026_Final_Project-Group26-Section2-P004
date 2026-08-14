@@ -21,4 +21,35 @@ class ExpenseProvider extends ChangeNotifier {
       return expenses;
     });
   }
+
+  // Calculate total expenses for a specific month and year
+  double totalForMonth(String month, int year) {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    final monthNumber = months.indexOf(month) + 1;
+
+    return _expenses
+        .where(
+          (expense) =>
+              expense.date.year == year &&
+              expense.date.month == monthNumber,
+        )
+        .fold(
+          0.0,
+          (total, expense) => total + expense.amount,
+        );
+  }
 }

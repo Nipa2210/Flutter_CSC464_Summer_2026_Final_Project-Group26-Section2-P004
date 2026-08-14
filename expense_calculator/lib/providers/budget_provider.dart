@@ -1,25 +1,50 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/budget.dart';
 import '../models/expense.dart';
 
-class BudgetProvider {
+class BudgetProvider extends ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   List<Budget> _budgets = [];
 
   List<Budget> get budgets => _budgets;
 
+  // Current month's budget
+  Budget? get currentBudget {
+    final now = DateTime.now();
+
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    return getBudgetForMonth(
+      months[now.month - 1],
+      now.year.toString(),
+    );
+  }
+
   // Real-time budget stream
   Stream<List<Budget>> getBudgets() {
-    return _firestore
-        .collection('budgets')
-        .snapshots()
-        .map((snapshot) {
+    return _firestore.collection('budgets').snapshots().map((snapshot) {
       final budgets = snapshot.docs
           .map((doc) => Budget.fromFirestore(doc))
           .toList();
 
       _budgets = budgets;
+      notifyListeners();
+
       return budgets;
     });
   }
@@ -92,7 +117,18 @@ class BudgetProvider {
     return total;
   }
 
-  // Calculate remaining budget
+  // Calculate remaining amount using the current budget
+  double calculateRemaining(double spentAmount) {
+    final budget = currentBudget;
+
+    if (budget == null) {
+      return 0;
+    }
+
+    return budget.amount - spentAmount;
+  }
+
+  // Calculate remaining amount using explicit budget and spent values
   double calculateRemainingBudget(
     double budgetAmount,
     double spentAmount,
@@ -100,11 +136,30 @@ class BudgetProvider {
     return budgetAmount - spentAmount;
   }
 
-  // Calculate usage percentage
+  // Supports both:
+  // calculateUsagePercentage(spent)
+  // calculateUsagePercentage(budgetAmount, spent)
   double calculateUsagePercentage(
-    double budgetAmount,
-    double spentAmount,
-  ) {
+    double firstAmount, [
+    double? secondAmount,
+  ]) {
+    double budgetAmount;
+    double spentAmount;
+
+    if (secondAmount == null) {
+      final budget = currentBudget;
+
+      if (budget == null || budget.amount <= 0) {
+        return 0;
+      }
+
+      budgetAmount = budget.amount;
+      spentAmount = firstAmount;
+    } else {
+      budgetAmount = firstAmount;
+      spentAmount = secondAmount;
+    }
+
     if (budgetAmount <= 0) {
       return 0;
     }
@@ -122,6 +177,33 @@ class BudgetProvider {
     }
 
     return spentAmount - budgetAmount;
+  }
+
+  // Create or update budget for a specific month and year
+  Future<void> setOrUpdateBudget(
+    String month,
+    int year,
+    double amount,
+  ) async {
+    final existingBudget = getBudgetForMonth(
+      month,
+      year.toString(),
+    );
+
+    if (existingBudget == null) {
+      await addBudget(
+        month: month,
+        year: year.toString(),
+        amount: amount,
+      );
+    } else {
+      await updateBudget(
+        id: existingBudget.id,
+        month: month,
+        year: year.toString(),
+        amount: amount,
+      );
+    }
   }
 
   String _monthName(int month) {
