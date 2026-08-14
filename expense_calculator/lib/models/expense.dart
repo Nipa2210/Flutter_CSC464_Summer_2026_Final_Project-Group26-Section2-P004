@@ -20,17 +20,18 @@ class Expense {
   });
 
   factory Expense.fromFirestore(DocumentSnapshot doc) {
-     final data = doc.data() as Map<String, dynamic>;
-     return Expense(
-       id: doc.id,
-       name: data['name'] ?? '',
-       amount: (data['amount'] ?? 0.0).toDouble(),
-       category: data['category'] ?? 'Other',
-       description: data['description'] ?? '',
-       date: (data['date'] as Timestamp).toDate(),
-       createdAt: (data['createdAt'] as Timestamp).toDate(),
-     );
-   }
+    final data = doc.data() as Map<String, dynamic>;
+
+    return Expense(
+      id: doc.id,
+      name: data['name'] ?? '',
+      amount: (data['amount'] ?? 0.0).toDouble(),
+      category: data['category'] ?? 'Other',
+      description: data['description'] ?? '',
+      date: (data['date'] as Timestamp).toDate(),
+      createdAt: (data['createdAt'] as Timestamp).toDate(),
+    );
+  }
 
   Map<String, dynamic> toFirestore() {
     return {
