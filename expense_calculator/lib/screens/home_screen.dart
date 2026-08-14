@@ -6,6 +6,7 @@ import '../models/expense.dart';
 import '../providers/budget_provider.dart';
 import '../providers/expense_provider.dart';
 import 'add_expense_screen.dart';
+import 'budget_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -72,28 +73,39 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Refresh',
           ),
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const BudgetScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.savings_outlined),
+            tooltip: 'Budget',
+          ),
         ],
       ),
-
       floatingActionButton: FloatingActionButton.extended(
-  onPressed: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const AddExpenseScreen(),
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AddExpenseScreen(),
+            ),
+          );
+        },
+        backgroundColor: const Color(0xFF6C4AB6),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text(
+          'Add Expense',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
-    );
-  },
-  backgroundColor: const Color(0xFF6C4AB6),
-  foregroundColor: Colors.white,
-  icon: const Icon(Icons.add_rounded),
-  label: const Text(
-    'Add Expense',
-    style: TextStyle(
-      fontWeight: FontWeight.bold,
-    ),
-  ),
-),
       body: StreamBuilder<List<Expense>>(
         stream: context.read<ExpenseProvider>().getExpenses(),
         builder: (context, expenseSnapshot) {
