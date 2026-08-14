@@ -65,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        actions: [
+                actions: [
           IconButton(
             onPressed: () {
               setState(() {});
@@ -82,7 +82,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               );
             },
-            icon: const Icon(Icons.savings_outlined),
+            icon: const Text(
+              '💰',
+              style: TextStyle(fontSize: 24),
+              ),
             tooltip: 'Budget',
           ),
         ],
@@ -149,7 +152,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
 
           final expenses = expenseSnapshot.data ?? [];
-          final budgetProvider = context.read<BudgetProvider>();
+          final budgetProvider = context.watch<BudgetProvider>();
 
           final monthlyExpenses = budgetProvider.calculateMonthlyExpense(
             expenses,
@@ -231,7 +234,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               title: 'Budget',
                               value:
                                   '\$${budgetAmount.toStringAsFixed(2)}',
-                              icon: Icons.savings_rounded,
+                              icon: Icons.savings_outlined,
                               iconColor: const Color(0xFF4CAF50),
                               backgroundColor: const Color(0xFFEAF7EE),
                             ),
