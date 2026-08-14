@@ -210,7 +210,12 @@ class _HomeScreenState extends State<HomeScreen> {
               setState(() {});
             },
             child: ListView(
-              padding: const EdgeInsets.only(bottom: 30),
+              padding: const EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                100,
+              ),
               children: [
                 _buildHeaderSummary(
                   monthlyExpenses: monthlyExpenses,
