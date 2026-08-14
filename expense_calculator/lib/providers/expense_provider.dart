@@ -6,14 +6,19 @@ class ExpenseProvider extends ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   List<Expense> _expenses = [];
+
   List<Expense> get expenses => _expenses;
 
   Stream<List<Expense>> getExpenses() {
     return _firestore.collection('expenses').snapshots().map((snapshot) {
-      final expenses = snapshot.docs.map((doc) => Expense.fromFirestore(doc)).toList();
+      final expenses = snapshot.docs
+          .map((doc) => Expense.fromFirestore(doc))
+          .toList();
+
       _expenses = expenses;
       notifyListeners();
-      return _expenses;
+
+      return expenses;
     });
   }
 }
