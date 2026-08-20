@@ -10,7 +10,6 @@ class ExpenseProvider extends ChangeNotifier {
   List<Expense> get expenses => _expenses;
 
   Stream<List<Expense>> getExpenses() {
-    
     return _firestore.collection('expenses').snapshots().map((snapshot) {
       final expenses = snapshot.docs
           .map((doc) => Expense.fromFirestore(doc))
@@ -22,26 +21,7 @@ class ExpenseProvider extends ChangeNotifier {
       return expenses;
     });
   }
-  Future<void> addExpense(Expense expense) async {
-  await _firestore
-      .collection('expenses')
-      .add(expense.toFirestore());
-}
-Future<void> updateExpense(Expense expense) async {
-  await _firestore
-      .collection('expenses')
-      .doc(expense.id)
-      .update(expense.toFirestore());
-}
 
-Future<void> deleteExpense(String expenseId) async {
-  await _firestore
-      .collection('expenses')
-      .doc(expenseId)
-      .delete();
-}
-
-  // Calculate total expenses for a specific month and year
   double totalForMonth(String month, int year) {
     const months = [
       'January',
@@ -66,9 +46,6 @@ Future<void> deleteExpense(String expenseId) async {
               expense.date.year == year &&
               expense.date.month == monthNumber,
         )
-        .fold(
-          0.0,
-          (total, expense) => total + expense.amount,
-        );
+        .fold(0.0, (total, expense) => total + expense.amount);
   }
 }
