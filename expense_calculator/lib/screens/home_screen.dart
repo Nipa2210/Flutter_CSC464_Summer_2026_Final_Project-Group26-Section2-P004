@@ -7,6 +7,7 @@ import '../providers/budget_provider.dart';
 import '../providers/expense_provider.dart';
 import 'add_expense_screen.dart';
 import 'budget_screen.dart';
+import 'expense_details_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,11 +17,75 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // IMPORTANT:
+  // Firestore stream is created only once.
+  // This prevents the stream from restarting every time
+  // the search text changes.
+  late Stream<List<Expense>> _expenseStream;
+
   DateTime _selectedMonth = DateTime.now();
 
-  String get _monthName => DateFormat('MMMM').format(_selectedMonth);
+  final TextEditingController _searchController =
+      TextEditingController();
+
+  String _searchQuery = '';
+  String _selectedCategory = 'All';
+  String _selectedSort = 'Newest first';
+
+  final List<String> _categories = [
+    'All',
+    'Food',
+    'Transport',
+    'Shopping',
+    'Bills',
+    'Entertainment',
+    'Health',
+    'Education',
+    'Other',
+  ];
+
+  final List<String> _sortOptions = [
+    'Newest first',
+    'Oldest first',
+    'Highest amount',
+    'Lowest amount',
+  ];
+
+  String get _monthName =>
+      DateFormat('MMMM').format(_selectedMonth);
 
   String get _year => _selectedMonth.year.toString();
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Create Firestore stream only once.
+    _expenseStream =
+        context.read<ExpenseProvider>().getExpenses();
+
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  void _onSearchChanged() {
+    final query =
+        _searchController.text.trim().toLowerCase();
+
+    if (query == _searchQuery) {
+      return;
+    }
+
+    setState(() {
+      _searchQuery = query;
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _selectMonth() async {
     final selected = await showDatePicker(
@@ -33,15 +98,160 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (selected != null) {
       setState(() {
-        _selectedMonth = DateTime(selected.year, selected.month);
+        _selectedMonth =
+            DateTime(selected.year, selected.month);
       });
     }
+  }
+
+  void _clearFilters() {
+    _searchController.clear();
+
+    setState(() {
+      _searchQuery = '';
+      _selectedCategory = 'All';
+      _selectedSort = 'Newest first';
+    });
+  }
+
+  List<Expense> _filterAndSortExpenses(
+    List<Expense> expenses,
+  ) {
+    List<Expense> filtered = expenses.where((expense) {
+      return expense.date.month == _selectedMonth.month &&
+          expense.date.year == _selectedMonth.year;
+    }).toList();
+
+    if (_searchQuery.isNotEmpty) {
+      filtered = filtered.where((expense) {
+        return expense.name
+            .toLowerCase()
+            .contains(_searchQuery);
+      }).toList();
+    }
+
+    if (_selectedCategory != 'All') {
+      filtered = filtered.where((expense) {
+        return expense.category == _selectedCategory;
+      }).toList();
+    }
+
+    switch (_selectedSort) {
+      case 'Newest first':
+        filtered.sort(
+          (a, b) => b.date.compareTo(a.date),
+        );
+        break;
+
+      case 'Oldest first':
+        filtered.sort(
+          (a, b) => a.date.compareTo(b.date),
+        );
+        break;
+
+      case 'Highest amount':
+        filtered.sort(
+          (a, b) => b.amount.compareTo(a.amount),
+        );
+        break;
+
+      case 'Lowest amount':
+        filtered.sort(
+          (a, b) => a.amount.compareTo(b.amount),
+        );
+        break;
+    }
+
+    return filtered;
+  }
+
+  Future<bool> _confirmDelete(
+    BuildContext context,
+    Expense expense,
+  ) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Expense?'),
+          content: Text(
+            'Are you sure you want to delete "${expense.name}"?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
+  }
+
+  Future<void> _deleteExpense(
+    Expense expense,
+  ) async {
+    try {
+      await context
+          .read<ExpenseProvider>()
+          .deleteExpense(expense.id);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${expense.name} deleted successfully.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Failed to delete expense: $e',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openExpenseDetails(
+    Expense expense,
+  ) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ExpenseDetailsScreen(
+          expense: expense,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7FB),
+
       appBar: AppBar(
         elevation: 0,
         backgroundColor: const Color(0xFF6C4AB6),
@@ -65,12 +275,14 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-                actions: [
+        actions: [
           IconButton(
             onPressed: () {
               setState(() {});
             },
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(
+              Icons.refresh_rounded,
+            ),
             tooltip: 'Refresh',
           ),
           IconButton(
@@ -85,12 +297,14 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Text(
               '💰',
               style: TextStyle(fontSize: 24),
-              ),
+            ),
             tooltip: 'Budget',
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+
+      floatingActionButton:
+          FloatingActionButton.extended(
         onPressed: () {
           Navigator.push(
             context,
@@ -109,10 +323,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+
+      // IMPORTANT:
+      // Use the already-created stream.
+      // Do NOT call getExpenses() here.
       body: StreamBuilder<List<Expense>>(
-        stream: context.read<ExpenseProvider>().getExpenses(),
+        stream: _expenseStream,
         builder: (context, expenseSnapshot) {
-          if (expenseSnapshot.connectionState == ConnectionState.waiting) {
+          if (expenseSnapshot.connectionState ==
+              ConnectionState.waiting) {
             return const Center(
               child: CircularProgressIndicator(
                 color: Color(0xFF6C4AB6),
@@ -125,7 +344,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment:
+                      MainAxisAlignment.center,
                   children: [
                     const Icon(
                       Icons.cloud_off_rounded,
@@ -151,64 +371,89 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
 
-          final expenses = expenseSnapshot.data ?? [];
-          final budgetProvider = context.watch<BudgetProvider>();
+          final expenses =
+              expenseSnapshot.data ?? <Expense>[];
 
-          final monthlyExpenses = budgetProvider.calculateMonthlyExpense(
+          final budgetProvider =
+              context.watch<BudgetProvider>();
+
+          final monthlyExpenses =
+              budgetProvider.calculateMonthlyExpense(
             expenses,
             _monthName,
             _year,
           );
 
-          final budget = budgetProvider.getBudgetForMonth(
+          final budget =
+              budgetProvider.getBudgetForMonth(
             _monthName,
             _year,
           );
 
-          final budgetAmount = budget?.amount ?? 0.0;
+          final budgetAmount =
+              budget?.amount ?? 0.0;
 
-          final remaining = budgetProvider.calculateRemainingBudget(
+          final remaining =
+              budgetProvider.calculateRemainingBudget(
             budgetAmount,
             monthlyExpenses,
           );
 
-          final usage = budgetProvider.calculateUsagePercentage(
+          final usage =
+              budgetProvider.calculateUsagePercentage(
             budgetAmount,
             monthlyExpenses,
           );
 
-          final overBudget = budgetProvider.calculateOverBudget(
+          final overBudget =
+              budgetProvider.calculateOverBudget(
             budgetAmount,
             monthlyExpenses,
           );
 
-          final monthlyExpenseList = expenses.where((expense) {
-            return expense.date.month == _selectedMonth.month &&
-                expense.date.year == _selectedMonth.year;
+          final monthlyExpenseList =
+              expenses.where((expense) {
+            return expense.date.month ==
+                    _selectedMonth.month &&
+                expense.date.year ==
+                    _selectedMonth.year;
           }).toList();
 
-          final categoryTotals = <String, double>{};
+          final filteredExpenses =
+              _filterAndSortExpenses(expenses);
+
+          final categoryTotals =
+              <String, double>{};
 
           for (final expense in monthlyExpenseList) {
             categoryTotals[expense.category] =
-                (categoryTotals[expense.category] ?? 0) + expense.amount;
+                (categoryTotals[expense.category] ?? 0) +
+                    expense.amount;
           }
 
           String highestCategory = 'None';
           double highestAmount = 0;
 
-          categoryTotals.forEach((category, amount) {
-            if (amount > highestAmount) {
-              highestAmount = amount;
-              highestCategory = category;
-            }
-          });
+          categoryTotals.forEach(
+            (category, amount) {
+              if (amount > highestAmount) {
+                highestAmount = amount;
+                highestCategory = category;
+              }
+            },
+          );
 
           return RefreshIndicator(
             color: const Color(0xFF6C4AB6),
+
+            // Firestore is already real-time.
+            // No setState() is needed for refresh.
             onRefresh: () async {
-              setState(() {});
+              await Future.delayed(
+                const Duration(milliseconds: 300),
+              );
             },
+
             child: ListView(
               padding: const EdgeInsets.fromLTRB(
                 16,
@@ -225,10 +470,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(
+                    16,
+                    20,
+                    16,
+                    0,
+                  ),
                   child: Column(
                     children: [
                       _buildMonthSelector(),
+
+                      const SizedBox(height: 18),
+
+                      _buildFilterSection(
+                        filteredExpenseCount:
+                            filteredExpenses.length,
+                        totalMonthlyExpenseCount:
+                            monthlyExpenseList.length,
+                      ),
 
                       const SizedBox(height: 18),
 
@@ -239,9 +498,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               title: 'Budget',
                               value:
                                   '\$${budgetAmount.toStringAsFixed(2)}',
-                              icon: Icons.savings_outlined,
-                              iconColor: const Color(0xFF4CAF50),
-                              backgroundColor: const Color(0xFFEAF7EE),
+                              icon:
+                                  Icons.savings_outlined,
+                              iconColor:
+                                  const Color(0xFF4CAF50),
+                              backgroundColor:
+                                  const Color(0xFFEAF7EE),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -250,9 +512,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               title: 'Expenses',
                               value:
                                   '${monthlyExpenseList.length}',
-                              icon: Icons.receipt_long_rounded,
-                              iconColor: const Color(0xFFFF8A65),
-                              backgroundColor: const Color(0xFFFFF0EB),
+                              icon:
+                                  Icons.receipt_long_rounded,
+                              iconColor:
+                                  const Color(0xFFFF8A65),
+                              backgroundColor:
+                                  const Color(0xFFFFF0EB),
                             ),
                           ),
                         ],
@@ -267,30 +532,37 @@ class _HomeScreenState extends State<HomeScreen> {
                               title: overBudget > 0
                                   ? 'Over Budget'
                                   : 'Remaining',
-                              value: '\$${(overBudget > 0
-                                      ? overBudget
-                                      : remaining)
-                                  .abs()
-                                  .toStringAsFixed(2)}',
+                              value:
+                                  '\$${(overBudget > 0
+                                          ? overBudget
+                                          : remaining)
+                                      .abs()
+                                      .toStringAsFixed(2)}',
                               icon: overBudget > 0
                                   ? Icons.warning_rounded
-                                  : Icons.account_balance_wallet_rounded,
+                                  : Icons
+                                      .account_balance_wallet_rounded,
                               iconColor: overBudget > 0
                                   ? const Color(0xFFE53935)
                                   : const Color(0xFF2196F3),
-                              backgroundColor: overBudget > 0
-                                  ? const Color(0xFFFFEBEE)
-                                  : const Color(0xFFEAF4FF),
+                              backgroundColor:
+                                  overBudget > 0
+                                      ? const Color(0xFFFFEBEE)
+                                      : const Color(0xFFEAF4FF),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: _buildStatCard(
                               title: 'Categories',
-                              value: '${categoryTotals.length}',
-                              icon: Icons.category_rounded,
-                              iconColor: const Color(0xFF9C6ADE),
-                              backgroundColor: const Color(0xFFF3ECFB),
+                              value:
+                                  '${categoryTotals.length}',
+                              icon:
+                                  Icons.category_rounded,
+                              iconColor:
+                                  const Color(0xFF9C6ADE),
+                              backgroundColor:
+                                  const Color(0xFFF3ECFB),
                             ),
                           ),
                         ],
@@ -313,8 +585,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         highestAmount: highestAmount,
                         categoryTotals: categoryTotals,
                       ),
+
                       const SizedBox(height: 16),
-                      _buildExpenseList(monthlyExpenseList),
+
+                      _buildExpenseList(
+                        filteredExpenses,
+                      ),
                     ],
                   ),
                 ),
@@ -322,6 +598,205 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildFilterSection({
+    required int filteredExpenseCount,
+    required int totalMonthlyExpenseCount,
+  }) {
+    final hasFilters =
+        _searchQuery.isNotEmpty ||
+        _selectedCategory != 'All' ||
+        _selectedSort != 'Newest first';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.filter_list_rounded,
+                color: Color(0xFF6C4AB6),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Search & Filter',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (hasFilters)
+                TextButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(
+                    Icons.clear_all_rounded,
+                    size: 18,
+                  ),
+                  label: const Text('Clear'),
+                  style: TextButton.styleFrom(
+                    foregroundColor:
+                        const Color(0xFFE53935),
+                  ),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search expense name...',
+              prefixIcon: const Icon(
+                Icons.search_rounded,
+                color: Color(0xFF6C4AB6),
+              ),
+              suffixIcon:
+                  _searchQuery.isNotEmpty
+                      ? IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                          },
+                          icon: const Icon(
+                            Icons.close_rounded,
+                          ),
+                        )
+                      : null,
+              filled: true,
+              fillColor: const Color(0xFFF7F7FB),
+              border: OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _selectedCategory,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Category',
+                    prefixIcon: const Icon(
+                      Icons.category_rounded,
+                      size: 20,
+                    ),
+                    filled: true,
+                    fillColor:
+                        const Color(0xFFF7F7FB),
+                    border: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  items: _categories.map(
+                    (category) {
+                      return DropdownMenuItem<String>(
+                        value: category,
+                        child: Text(category),
+                      );
+                    },
+                  ).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedCategory = value;
+                      });
+                    }
+                  },
+                ),
+              ),
+
+              const SizedBox(width: 10),
+
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _selectedSort,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Sort by',
+                    prefixIcon: const Icon(
+                      Icons.sort_rounded,
+                      size: 20,
+                    ),
+                    filled: true,
+                    fillColor:
+                        const Color(0xFFF7F7FB),
+                    border: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  items: _sortOptions.map(
+                    (sort) {
+                      return DropdownMenuItem<String>(
+                        value: sort,
+                        child: Text(
+                          sort,
+                          overflow:
+                              TextOverflow.ellipsis,
+                        ),
+                      );
+                    },
+                  ).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedSort = value;
+                      });
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              const Icon(
+                Icons.info_outline_rounded,
+                size: 17,
+                color: Colors.grey,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Showing $filteredExpenseCount of '
+                  '$totalMonthlyExpenseCount expenses '
+                  'for $_monthName $_year',
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -336,7 +811,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 26),
+      padding: const EdgeInsets.fromLTRB(
+        20,
+        24,
+        20,
+        26,
+      ),
       decoration: const BoxDecoration(
         color: Color(0xFF6C4AB6),
         borderRadius: BorderRadius.only(
@@ -345,7 +825,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
           const Text(
             'This Month',
@@ -367,10 +848,13 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(22),
+              color:
+                  Colors.white.withValues(alpha: 0.13),
+              borderRadius:
+                  BorderRadius.circular(22),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.18),
+                color:
+                    Colors.white.withValues(alpha: 0.18),
               ),
             ),
             child: Row(
@@ -378,11 +862,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 Container(
                   padding: const EdgeInsets.all(13),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
+                    color: Colors.white
+                        .withValues(alpha: 0.18),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
-                    Icons.account_balance_wallet_rounded,
+                    Icons
+                        .account_balance_wallet_rounded,
                     color: Colors.white,
                     size: 28,
                   ),
@@ -390,7 +876,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'Total Spending',
@@ -413,10 +900,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 if (budgetAmount > 0)
                   Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.end,
                     children: [
                       Text(
-                        isOverBudget ? 'Over budget' : 'Remaining',
+                        isOverBudget
+                            ? 'Over budget'
+                            : 'Remaining',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 12,
@@ -424,7 +914,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '\$${(isOverBudget ? overBudget : remaining).abs().toStringAsFixed(2)}',
+                        '\$${(isOverBudget
+                                ? overBudget
+                                : remaining)
+                            .abs()
+                            .toStringAsFixed(2)}',
                         style: TextStyle(
                           color: isOverBudget
                               ? const Color(0xFFFFCDD2)
@@ -467,7 +961,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF0EAF8),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius:
+                      BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.calendar_month_rounded,
@@ -477,7 +972,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     const Text(
                       'Selected Month',
@@ -522,13 +1018,16 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(11),
+              color:
+                  iconColor.withValues(alpha: 0.14),
+              borderRadius:
+                  BorderRadius.circular(11),
             ),
             child: Icon(
               icon,
@@ -570,7 +1069,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final progress = budgetAmount <= 0
         ? 0.0
-        : (monthlyExpenses / budgetAmount).clamp(0.0, 1.0);
+        : (monthlyExpenses / budgetAmount)
+            .clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -579,14 +1079,16 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color:
+                Colors.black.withValues(alpha: 0.05),
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -596,7 +1098,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: isOverBudget
                       ? const Color(0xFFFFEBEE)
                       : const Color(0xFFEDE7F6),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius:
+                      BorderRadius.circular(12),
                 ),
                 child: Icon(
                   isOverBudget
@@ -610,7 +1113,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 12),
               const Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Monthly Budget',
@@ -632,9 +1136,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+
           const SizedBox(height: 22),
+
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment:
+                MainAxisAlignment.spaceBetween,
             children: [
               _budgetAmountText(
                 'Budget',
@@ -648,7 +1155,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+
           const SizedBox(height: 16),
+
           ClipRRect(
             borderRadius: BorderRadius.circular(20),
             child: LinearProgressIndicator(
@@ -660,9 +1169,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   : const Color(0xFF6C4AB6),
             ),
           ),
+
           const SizedBox(height: 10),
+
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment:
+                MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 '${usage.toStringAsFixed(1)}% used',
@@ -697,7 +1209,8 @@ class _HomeScreenState extends State<HomeScreen> {
     Color color,
   ) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
       children: [
         Text(
           title,
@@ -731,14 +1244,16 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color:
+                Colors.black.withValues(alpha: 0.05),
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -746,7 +1261,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFF3E0),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius:
+                      BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.bar_chart_rounded,
@@ -755,7 +1271,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(width: 12),
               const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Expense Analytics',
@@ -776,7 +1293,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+
           const SizedBox(height: 20),
+
           Container(
             padding: const EdgeInsets.all(15),
             decoration: BoxDecoration(
@@ -786,13 +1305,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   Color(0xFFEDE7F6),
                 ],
               ),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius:
+                  BorderRadius.circular(16),
             ),
             child: Row(
               children: [
                 const CircleAvatar(
                   radius: 23,
-                  backgroundColor: Color(0xFF6C4AB6),
+                  backgroundColor:
+                      Color(0xFF6C4AB6),
                   child: Icon(
                     Icons.trending_up_rounded,
                     color: Colors.white,
@@ -801,7 +1322,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 13),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'Highest Spending',
@@ -832,7 +1354,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+
           const SizedBox(height: 20),
+
           const Text(
             'Category-wise Spending',
             style: TextStyle(
@@ -840,14 +1364,17 @@ class _HomeScreenState extends State<HomeScreen> {
               fontSize: 16,
             ),
           ),
+
           const SizedBox(height: 10),
+
           if (categoryTotals.isEmpty)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8F8FA),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius:
+                    BorderRadius.circular(14),
               ),
               child: const Column(
                 children: [
@@ -859,7 +1386,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   SizedBox(height: 8),
                   Text(
                     'No expenses recorded for this month.',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(
+                      color: Colors.grey,
+                    ),
                   ),
                 ],
               ),
@@ -890,7 +1419,8 @@ class _HomeScreenState extends State<HomeScreen> {
       'Education': Icons.school_rounded,
     };
 
-    final icon = icons[category] ?? Icons.category_rounded;
+    final icon =
+        icons[category] ?? Icons.category_rounded;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -908,7 +1438,8 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: const Color(0xFFEDE7F6),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius:
+                  BorderRadius.circular(10),
             ),
             child: Icon(
               icon,
@@ -936,461 +1467,604 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-   Widget _buildExpenseList(List<Expense> expenses) {
-  return Card(
-    elevation: 2,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.receipt_long_rounded,
-                color: Color(0xFF6C4AB6),
-                size: 26,
+
+  Widget _buildExpenseList(
+    List<Expense> expenses,
+  ) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.receipt_long_rounded,
+                  color: Color(0xFF6C4AB6),
+                  size: 26,
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Recent Expenses',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (expenses.isNotEmpty)
+                  Text(
+                    '${expenses.length}',
+                    style: const TextStyle(
+                      color: Color(0xFF6C4AB6),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            if (expenses.isEmpty)
+              const Padding(
+                padding:
+                    EdgeInsets.symmetric(vertical: 25),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.receipt_long_outlined,
+                        size: 45,
+                        color: Colors.grey,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'No expenses found.',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ...expenses.map(
+                (expense) {
+                  return _buildExpenseItem(expense);
+                },
               ),
-              SizedBox(width: 10),
-              Text(
-                'Recent Expenses',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpenseItem(
+    Expense expense,
+  ) {
+    return Dismissible(
+      key: ValueKey(expense.id),
+      direction: DismissDirection.horizontal,
+
+      background: _buildSwipeBackground(
+        alignment: Alignment.centerLeft,
+        icon: Icons.delete_rounded,
+        text: 'Delete',
+        color: Colors.red,
+      ),
+
+      secondaryBackground: _buildSwipeBackground(
+        alignment: Alignment.centerRight,
+        icon: Icons.delete_rounded,
+        text: 'Delete',
+        color: Colors.red,
+      ),
+
+      confirmDismiss: (direction) async {
+        return await _confirmDelete(
+          context,
+          expense,
+        );
+      },
+
+      onDismissed: (direction) async {
+        await _deleteExpense(expense);
+      },
+
+      child: InkWell(
+        onTap: () {
+          _openExpenseDetails(expense);
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          margin:
+              const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F0FB),
+            borderRadius:
+                BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFFE4DAF5),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2D7F5),
+                  borderRadius:
+                      BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.shopping_bag_outlined,
+                  color: Color(0xFF6C4AB6),
                 ),
               ),
-            ],
-          ),
 
-          const SizedBox(height: 14),
+              const SizedBox(width: 12),
 
-          if (expenses.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 25),
-              child: Center(
+              Expanded(
                 child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.receipt_long_outlined,
-                      size: 45,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(height: 8),
                     Text(
-                      'No expenses for this month.',
-                      style: TextStyle(
+                      expense.name,
+                      maxLines: 2,
+                      overflow:
+                          TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      expense.category,
+                      style: const TextStyle(
+                        color: Color(0xFF6C4AB6),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+
+                    const SizedBox(height: 3),
+
+                    Text(
+                      DateFormat('dd MMM yyyy')
+                          .format(expense.date),
+                      style: const TextStyle(
                         color: Colors.grey,
-                        fontSize: 15,
+                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
               ),
-            )
-          else
-            ...expenses.map(
-              (expense) {
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF4F0FB),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: const Color(0xFFE4DAF5),
+
+              const SizedBox(width: 8),
+
+              Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '\$${expense.amount.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF6C4AB6),
                     ),
                   ),
-                  child: Row(
+
+                  const SizedBox(height: 6),
+
+                  Row(
                     children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE2D7F5),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.shopping_bag_outlined,
+                      IconButton(
+                        visualDensity:
+                            VisualDensity.compact,
+                        tooltip: 'View details',
+                        icon: const Icon(
+                          Icons.visibility_outlined,
+                          size: 20,
                           color: Color(0xFF6C4AB6),
                         ),
+                        onPressed: () {
+                          _openExpenseDetails(expense);
+                        },
                       ),
 
-                      const SizedBox(width: 12),
-
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              expense.name,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                ),
-                                ),
-
-                            const SizedBox(height: 4),
-
-                            Text(
-                              expense.category,
-                              style: const TextStyle(
-                                color: Color(0xFF6C4AB6),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-
-                            const SizedBox(height: 3),
-
-                            Text(
-                              DateFormat('dd MMM yyyy')
-                                  .format(expense.date),
-                              style: const TextStyle(
-                                color: Colors.grey,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+                      IconButton(
+                        visualDensity:
+                            VisualDensity.compact,
+                        tooltip: 'Edit',
+                        icon: const Icon(
+                          Icons.edit,
+                          size: 20,
+                          color: Colors.blue,
                         ),
+                        onPressed: () {
+                          _showEditExpenseDialog(
+                            context,
+                            expense,
+                          );
+                        },
                       ),
 
-                      const SizedBox(width: 8),
+                      IconButton(
+                        visualDensity:
+                            VisualDensity.compact,
+                        tooltip: 'Delete',
+                        icon: const Icon(
+                          Icons.delete_rounded,
+                          size: 20,
+                          color: Colors.redAccent,
+                        ),
+                        onPressed: () async {
+                          final shouldDelete =
+                              await _confirmDelete(
+                            context,
+                            expense,
+                          );
 
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            '\$${expense.amount.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF6C4AB6),
-                            ),
-                          ),
-
-                          const SizedBox(height: 6),
-
-                          Row(
-                            children: [
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                tooltip: 'Edit',
-                                icon: const Icon(
-                                  Icons.edit,
-                                  size: 20,
-                                  color: Colors.blue,
-                                  ),
-                                  onPressed: () {
-                                    _showEditExpenseDialog(context, expense);
-                                    },
-                                    ),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                tooltip: 'Delete',
-                                icon: const Icon(
-                                  Icons.delete_rounded,
-                                  size: 20,
-                                  color: Colors.redAccent,
-                                ),
-                                onPressed: () async {
-                                    final shouldDelete = await showDialog<bool>(
-                                      context: context,
-                                      builder: (context) {
-                                        return AlertDialog(
-                                          title: const Text('Delete Expense?'),
-                                          content: const Text(
-                                            'Are you sure you want to delete this expense?',
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () {
-                                                  Navigator.of(context).pop(false);
-                                                },
-                                                child: const Text('Cancel'),
-                                              ),
-                                              TextButton(
-                                                onPressed: () {
-                                                  Navigator.of(context).pop(true);
-                                                  },
-                                                  child: const Text(
-                                                    'Delete',
-                                                    style: TextStyle(color: Colors.red),
-                                                ),
-                                              ),
-                                            ],
-                                          );
-                                        },
-                                      );
-                                      if (shouldDelete == true) {
-                                        await context
-                                          .read<ExpenseProvider>()
-                                          .deleteExpense(expense.id);
-                                        }
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
+                          if (shouldDelete) {
+                            await _deleteExpense(expense);
+                          }
+                        },
                       ),
                     ],
                   ),
-                );
-              },
-            ),
-        ],
-      ),
-    ),
-  );
-  }
-  Future<void> _showEditExpenseDialog(
-  BuildContext context,
-  Expense expense,
-) async {
-  final formKey = GlobalKey<FormState>();
-
-  final titleController = TextEditingController(
-    text: expense.name,
-  );
-
-  final amountController = TextEditingController(
-    text: expense.amount.toString(),
-  );
-
-  final descriptionController = TextEditingController(
-    text: expense.description,
-  );
-
-  String selectedCategory = expense.category;
-  DateTime selectedDate = expense.date;
-
-  const categories = [
-    'Food',
-    'Transport',
-    'Shopping',
-    'Bills',
-    'Entertainment',
-    'Health',
-    'Education',
-    'Other',
-  ];
-
-  await showDialog(
-    context: context,
-    builder: (dialogContext) {
-      return StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            title: const Row(
-              children: [
-                Icon(
-                  Icons.edit_outlined,
-                  color: Color(0xFF6C4AB6),
-                ),
-                SizedBox(width: 8),
-                Text('Edit Expense'),
-              ],
-            ),
-            content: SizedBox(
-              width: 400,
-              child: Form(
-                key: formKey,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextFormField(
-                        controller: titleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Expense Title',
-                          prefixIcon: Icon(
-                            Icons.receipt_long_rounded,
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null ||
-                              value.trim().isEmpty) {
-                            return 'Please enter an expense title';
-                          }
-                          return null;
-                        },
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      TextFormField(
-                        controller: amountController,
-                        keyboardType:
-                            const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Amount',
-                          prefixIcon: Icon(
-                            Icons.attach_money_rounded,
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null ||
-                              value.trim().isEmpty) {
-                            return 'Please enter an amount';
-                          }
-
-                          final amount = double.tryParse(
-                            value.trim(),
-                          );
-
-                          if (amount == null || amount <= 0) {
-                            return 'Enter a valid amount';
-                          }
-
-                          return null;
-                        },
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      DropdownButtonFormField<String>(
-                        initialValue: selectedCategory,
-                        decoration: const InputDecoration(
-                          labelText: 'Category',
-                          prefixIcon: Icon(
-                            Icons.category_rounded,
-                          ),
-                        ),
-                        items: categories.map((category) {
-                          return DropdownMenuItem<String>(
-                            value: category,
-                            child: Text(category),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() {
-                              selectedCategory = value;
-                            });
-                          }
-                        },
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      InkWell(
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: dialogContext,
-                            initialDate: selectedDate,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2035),
-                          );
-
-                          if (picked != null) {
-                            setDialogState(() {
-                              selectedDate = picked;
-                            });
-                          }
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(
-                            labelText: 'Date',
-                            prefixIcon: Icon(
-                              Icons.calendar_month_rounded,
-                            ),
-                          ),
-                          child: Text(
-                            '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      TextFormField(
-                        controller: descriptionController,
-                        maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Description',
-                          prefixIcon: Icon(
-                            Icons.notes_rounded,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                },
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton.icon(
-                onPressed: () async {
-                  if (!formKey.currentState!.validate()) {
-                    return;
-                  }
-
-                  final updatedExpense = Expense(
-                    id: expense.id,
-                    name: titleController.text.trim(),
-                    amount: double.parse(
-                      amountController.text.trim(),
-                    ),
-                    category: selectedCategory,
-                    description: descriptionController.text.trim(),
-                    date: selectedDate,
-                    createdAt: expense.createdAt,
-                  );
-
-                  try {
-                    await context
-                        .read<ExpenseProvider>()
-                        .updateExpense(updatedExpense);
-
-                    if (!context.mounted) return;
-
-                    Navigator.pop(dialogContext);
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Expense updated successfully!',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  } catch (e) {
-                    if (!context.mounted) return;
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Failed to update expense: $e',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.save_rounded),
-                label: const Text('Save Changes'),
+                ],
               ),
             ],
-          );
-        },
-      );
-    },
-  );
+          ),
+        ),
+      ),
+    );
+  }
 
-  titleController.dispose();
-  amountController.dispose();
-  descriptionController.dispose();
-}
+  Widget _buildSwipeBackground({
+    required Alignment alignment,
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 22,
+      ),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      alignment: alignment,
+      child: Row(
+        mainAxisAlignment:
+            alignment == Alignment.centerLeft
+                ? MainAxisAlignment.start
+                : MainAxisAlignment.end,
+        children: [
+          if (alignment == Alignment.centerLeft) ...[
+            Icon(
+              icon,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ] else ...[
+            Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              icon,
+              color: Colors.white,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showEditExpenseDialog(
+    BuildContext context,
+    Expense expense,
+  ) async {
+    final formKey = GlobalKey<FormState>();
+
+    final titleController = TextEditingController(
+      text: expense.name,
+    );
+
+    final amountController = TextEditingController(
+      text: expense.amount.toString(),
+    );
+
+    final descriptionController =
+        TextEditingController(
+      text: expense.description,
+    );
+
+    String selectedCategory = expense.category;
+
+    DateTime selectedDate = expense.date;
+
+    const categories = [
+      'Food',
+      'Transport',
+      'Shopping',
+      'Bills',
+      'Entertainment',
+      'Health',
+      'Education',
+      'Other',
+    ];
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (
+            context,
+            setDialogState,
+          ) {
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.edit_outlined,
+                    color: Color(0xFF6C4AB6),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Edit Expense'),
+                ],
+              ),
+              content: SizedBox(
+                width: 400,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextFormField(
+                          controller: titleController,
+                          decoration:
+                              const InputDecoration(
+                            labelText: 'Expense Title',
+                            prefixIcon: Icon(
+                              Icons.receipt_long_rounded,
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null ||
+                                value.trim().isEmpty) {
+                              return 'Please enter an expense title';
+                            }
+                            return null;
+                          },
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        TextFormField(
+                          controller: amountController,
+                          keyboardType:
+                              const TextInputType
+                                  .numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration:
+                              const InputDecoration(
+                            labelText: 'Amount',
+                            prefixIcon: Icon(
+                              Icons.attach_money_rounded,
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null ||
+                                value.trim().isEmpty) {
+                              return 'Please enter an amount';
+                            }
+
+                            final amount =
+                                double.tryParse(
+                              value.trim(),
+                            );
+
+                            if (amount == null ||
+                                amount <= 0) {
+                              return 'Enter a valid amount';
+                            }
+
+                            return null;
+                          },
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedCategory,
+                          decoration:
+                              const InputDecoration(
+                            labelText: 'Category',
+                            prefixIcon: Icon(
+                              Icons.category_rounded,
+                            ),
+                          ),
+                          items: categories.map(
+                            (category) {
+                              return DropdownMenuItem<
+                                  String>(
+                                value: category,
+                                child: Text(category),
+                              );
+                            },
+                          ).toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setDialogState(() {
+                                selectedCategory = value;
+                              });
+                            }
+                          },
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        InkWell(
+                          onTap: () async {
+                            final picked =
+                                await showDatePicker(
+                              context: dialogContext,
+                              initialDate: selectedDate,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2035),
+                            );
+
+                            if (picked != null) {
+                              setDialogState(() {
+                                selectedDate = picked;
+                              });
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration:
+                                const InputDecoration(
+                              labelText: 'Date',
+                              prefixIcon: Icon(
+                                Icons.calendar_month_rounded,
+                              ),
+                            ),
+                            child: Text(
+                              '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        TextFormField(
+                          controller:
+                              descriptionController,
+                          maxLines: 3,
+                          decoration:
+                              const InputDecoration(
+                            labelText: 'Description',
+                            prefixIcon: Icon(
+                              Icons.notes_rounded,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text('Cancel'),
+                ),
+
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    if (!formKey.currentState!
+                        .validate()) {
+                      return;
+                    }
+
+                    final updatedExpense = Expense(
+                      id: expense.id,
+                      name: titleController.text.trim(),
+                      amount: double.parse(
+                        amountController.text.trim(),
+                      ),
+                      category: selectedCategory,
+                      description:
+                          descriptionController.text.trim(),
+                      date: selectedDate,
+                      createdAt: expense.createdAt,
+                    );
+
+                    try {
+                      await context
+                          .read<ExpenseProvider>()
+                          .updateExpense(
+                        updatedExpense,
+                      );
+
+                      if (!context.mounted) {
+                        return;
+                      }
+
+                      Navigator.pop(dialogContext);
+
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Expense updated successfully!',
+                          ),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } catch (e) {
+                      if (!context.mounted) {
+                        return;
+                      }
+
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Failed to update expense: $e',
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.save_rounded),
+                  label: const Text('Save Changes'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    titleController.dispose();
+    amountController.dispose();
+    descriptionController.dispose();
+  }
 }
