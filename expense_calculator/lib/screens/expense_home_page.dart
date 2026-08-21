@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'add_expense_screen.dart';
 
 class ExpenseHomePage extends StatelessWidget {
   const ExpenseHomePage({super.key});
@@ -6,11 +7,25 @@ class ExpenseHomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF7F7FB),
       appBar: AppBar(
-        title: const Text('Expense Calculator'),
+        title: const Text('Expenses'),
+        backgroundColor: const Color(0xFF6C4AB6),
+        foregroundColor: Colors.white,
       ),
-      body: const Center(
-        child: Text('Expense Calculator'),
+      body: Center(
+        child: ElevatedButton.icon(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AddExpenseScreen(),
+              ),
+            );
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('Add Expense'),
+        ),
       ),
     );
   }
