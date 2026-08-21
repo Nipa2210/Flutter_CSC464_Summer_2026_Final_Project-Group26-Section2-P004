@@ -1,10 +1,10 @@
+import 'package:expense_calculator/providers/expense_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
 import 'providers/budget_provider.dart';
-import 'providers/expense_provider.dart';
 import 'screens/home_screen.dart';
 
 Future<void> main() async {
@@ -24,10 +24,10 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        Provider<ExpenseProvider>(
+        ChangeNotifierProvider<ExpenseProvider>(
           create: (_) => ExpenseProvider(),
         ),
-        Provider<BudgetProvider>(
+        ChangeNotifierProvider<BudgetProvider>(
           create: (_) => BudgetProvider(),
         ),
       ],
